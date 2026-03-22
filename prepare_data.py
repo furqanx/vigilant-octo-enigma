@@ -45,6 +45,35 @@ def pad_if_needed(y, sr, target_sec=5.0):
     return y
 
 # ==========================================
+# UTILITAS: KONVERSI WAKTU SUPER AMAN
+# ==========================================
+def time_str_to_seconds(time_val):
+    """
+    Mengonversi berbagai format waktu menjadi integer detik.
+    Mendukung format: HH:MM:SS, MM:SS, float (5.0), atau integer (5).
+    """
+    # Jika sudah berupa angka murni
+    if isinstance(time_val, (int, float)):
+        return int(time_val)
+        
+    time_str = str(time_val).strip()
+    
+    # Jika string adalah angka (misal "5" atau "5.0")
+    if time_str.replace('.', '', 1).isdigit():
+        return int(float(time_str))
+        
+    # Jika menggunakan format titik dua
+    parts = time_str.split(':')
+    if len(parts) == 3: # HH:MM:SS
+        h, m, s = map(float, parts)
+        return int(h * 3600 + m * 60 + s)
+    elif len(parts) == 2: # MM:SS
+        m, s = map(float, parts)
+        return int(m * 60 + s)
+    else:
+        raise ValueError(f"Format waktu tidak dikenali: {time_val}")
+
+# ==========================================
 # FUNGSI UTAMA 1: TRAIN AUDIO (Energy-Based)
 # ==========================================
 def process_train_audio(input_dir, output_dir, csv_path, sr=32000, block_sec=60.0, target_sec=5.0):
@@ -80,7 +109,8 @@ def process_train_audio(input_dir, output_dir, csv_path, sr=32000, block_sec=60.
             out_path = os.path.join(species_dir, out_name)
             sf.write(out_path, y_padded, sr)
             
-            new_row = row.copy()
+            # REVISI: Menggunakan to_dict() untuk mencegah depresiasi Pandas
+            new_row = row.to_dict()
             new_row['new_filename'] = f"{primary_label}/{out_name}"
             new_metadata.append(new_row)
             continue
@@ -90,7 +120,7 @@ def process_train_audio(input_dir, output_dir, csv_path, sr=32000, block_sec=60.
         for i in range(0, len(y), block_samples):
             block = y[i : i + block_samples]
             
-            # Kasus 4: Abaikan sisa durasi jika kurang dari 5 detik
+            # Kasus 4: Abaikan sisa durasi di ujung file jika kurang dari 5 detik
             if len(block) < int(target_sec * sr):
                 continue
                 
@@ -101,9 +131,11 @@ def process_train_audio(input_dir, output_dir, csv_path, sr=32000, block_sec=60.
             out_path = os.path.join(species_dir, out_name)
             sf.write(out_path, best_5s, sr)
             
-            new_row = row.copy()
+            # REVISI: Menggunakan to_dict()
+            new_row = row.to_dict()
             new_row['new_filename'] = f"{primary_label}/{out_name}"
             new_metadata.append(new_row)
+            
             block_idx += 1
             
     # Simpan metadata baru
@@ -111,13 +143,6 @@ def process_train_audio(input_dir, output_dir, csv_path, sr=32000, block_sec=60.
     new_df.to_csv(os.path.join(output_dir, "cropped_train.csv"), index=False)
     print(f"Selesai! Metadata baru disimpan di {output_dir}/cropped_train.csv")
 
-# ==========================================
-# UTILITAS: KONVERSI WAKTU HH:MM:SS KE DETIK
-# ==========================================
-def time_str_to_seconds(time_str):
-    """Mengonversi format '00:00:05' menjadi integer 5."""
-    h, m, s = map(int, str(time_str).split(':'))
-    return h * 3600 + m * 60 + s
 
 # ==========================================
 # FUNGSI UTAMA 2: TRAIN SOUNDSCAPES (Metadata-Driven)
@@ -129,7 +154,6 @@ def process_train_soundscapes(input_dir, output_dir, csv_path, sr=32000):
     df = pd.read_csv(csv_path)
     new_metadata = []
     
-    # Optimasi: Kelompokkan berdasarkan nama file agar audio tidak dimuat berulang kali
     grouped_df = df.groupby('filename')
     
     for filename, group in tqdm(grouped_df, desc="Processing Soundscapes"):
@@ -140,38 +164,40 @@ def process_train_soundscapes(input_dir, output_dir, csv_path, sr=32000):
             continue
             
         try:
-            # Muat file audio 1 kali saja untuk dipotong berkali-kali
             y, _ = librosa.load(audio_path, sr=sr)
         except Exception as e:
             print(f"⚠️ Gagal memuat {filename}: {e}")
             continue
             
         for _, row in group.iterrows():
-            # 1. Ambil instruksi waktu dan konversi ke detik
+            # 1. Ambil instruksi waktu menggunakan fungsi parsing yang sudah aman
             start_sec = time_str_to_seconds(row['start'])
             end_sec = time_str_to_seconds(row['end'])
             
-            # 2. Konversi detik ke indeks array sampel
             start_sample = start_sec * sr
             end_sample = end_sec * sr
             
-            # 3. Potong audio sesuai instruksi
+            # Batasi indeks agar tidak melewati batas array audio
+            start_sample = max(0, min(start_sample, len(y)))
+            end_sample = max(0, min(end_sample, len(y)))
+            
             chunk = y[start_sample:end_sample]
             
-            # 4. Buat nama file baru yang rapi (menambahkan waktu potong)
+            # Jika potongan kosong, abaikan
+            if len(chunk) == 0:
+                continue
+            
             base_name = os.path.splitext(filename)[0]
             out_name = f"{base_name}_{start_sec}_{end_sec}.ogg"
             out_path = os.path.join(output_dir, out_name)
             
-            # 5. Simpan potongan
             sf.write(out_path, chunk, sr)
             
-            # 6. Rekam ke metadata baru
-            new_row = row.copy()
+            # REVISI: Menggunakan to_dict()
+            new_row = row.to_dict()
             new_row['new_filename'] = out_name
             new_metadata.append(new_row)
             
-    # simpan CSV baru sebagai "buku resep" untuk Dataloader nanti
     new_df = pd.DataFrame(new_metadata)
     new_csv_path = os.path.join(output_dir, "cropped_soundscapes.csv")
     new_df.to_csv(new_csv_path, index=False)
@@ -182,15 +208,29 @@ def process_train_soundscapes(input_dir, output_dir, csv_path, sr=32000):
 # ==========================================
 def main():
     BASE_DIR        = "/kaggle/input/competitions/birdclef-2026"
-    OUTPUT_BASE     = "/kaggle/working/processed_data"
+    OUTPUT_BASE     = "/kaggle/working/vigilant-octo-enigma/data/processed"
     
-    TRAIN_AUDIO_IN  = os.path.join(BASE_DIR,    "train_audio")
     TRAIN_CSV_IN    = os.path.join(BASE_DIR,    "train.csv")
+    TRAIN_AUDIO_IN  = os.path.join(BASE_DIR,    "train_audio")
     TRAIN_AUDIO_OUT = os.path.join(OUTPUT_BASE, "train_audio_cropped")
     
+    # REVISI: Mendefinisikan lokasi CSV untuk soundscapes
+    # Biasanya panitia menamainya train_soundscape_labels.csv atau soundscape_labels.csv
+    SOUNDSCAPE_CSV  = os.path.join(BASE_DIR,    "train_soundscapes_labels.csv") 
     SOUNDSCAPE_IN   = os.path.join(BASE_DIR,    "train_soundscapes")
     SOUNDSCAPE_OUT  = os.path.join(OUTPUT_BASE, "train_soundscapes_cropped")
     
+    # REVISI: Pastikan CSV soundscapes ada sebelum dijalankan dan dilempar ke fungsi
+    if os.path.exists(SOUNDSCAPE_CSV):
+        process_train_soundscapes(
+            input_dir   = SOUNDSCAPE_IN, 
+            output_dir  = SOUNDSCAPE_OUT,
+            csv_path    = SOUNDSCAPE_CSV,  # <-- BUG FATAL DIPERBAIKI DISINI
+            sr          = 32000
+        )
+    else:
+        print(f"⚠️ PERINGATAN: File label soundscapes tidak ditemukan di {SOUNDSCAPE_CSV}. Proses Soundscapes dilewati.")
+
     process_train_audio(
         input_dir   = TRAIN_AUDIO_IN, 
         output_dir  = TRAIN_AUDIO_OUT, 
@@ -198,12 +238,6 @@ def main():
         sr          = 32000, 
         block_sec   = 60.0, 
         target_sec  = 5.0
-    )
-    
-    process_train_soundscapes(
-        input_dir   = SOUNDSCAPE_IN, 
-        output_dir  = SOUNDSCAPE_OUT, 
-        sr          = 32000
     )
 
 if __name__ == "__main__":
