@@ -171,7 +171,7 @@ def process_train_soundscapes(input_dir, output_dir, csv_path, sr=32000):
             new_row['new_filename'] = out_name
             new_metadata.append(new_row)
             
-    # Simpan CSV baru sebagai "buku resep" untuk Dataloader nanti
+    # simpan CSV baru sebagai "buku resep" untuk Dataloader nanti
     new_df = pd.DataFrame(new_metadata)
     new_csv_path = os.path.join(output_dir, "cropped_soundscapes.csv")
     new_df.to_csv(new_csv_path, index=False)
@@ -181,7 +181,6 @@ def process_train_soundscapes(input_dir, output_dir, csv_path, sr=32000):
 # MAIN EXECUTION
 # ==========================================
 def main():
-    # Definisikan path (Sesuaikan dengan direktori lokal atau Kaggle Anda)
     BASE_DIR        = "/kaggle/input/competitions/birdclef-2026"
     OUTPUT_BASE     = "/kaggle/working/processed_data"
     
@@ -192,21 +191,19 @@ def main():
     SOUNDSCAPE_IN   = os.path.join(BASE_DIR,    "train_soundscapes")
     SOUNDSCAPE_OUT  = os.path.join(OUTPUT_BASE, "train_soundscapes_cropped")
     
-    # Eksekusi
     process_train_audio(
-        input_dir=TRAIN_AUDIO_IN, 
-        output_dir=TRAIN_AUDIO_OUT, 
-        csv_path=TRAIN_CSV_IN,
-        sr=32000, 
-        block_sec=60.0, 
-        target_sec=5.0
+        input_dir   = TRAIN_AUDIO_IN, 
+        output_dir  = TRAIN_AUDIO_OUT, 
+        csv_path    = TRAIN_CSV_IN,
+        sr          = 32000, 
+        block_sec   = 60.0, 
+        target_sec  = 5.0
     )
     
     process_train_soundscapes(
-        input_dir=SOUNDSCAPE_IN, 
-        output_dir=SOUNDSCAPE_OUT, 
-        sr=32000, 
-        target_sec=5.0
+        input_dir   = SOUNDSCAPE_IN, 
+        output_dir  = SOUNDSCAPE_OUT, 
+        sr          = 32000
     )
 
 if __name__ == "__main__":
