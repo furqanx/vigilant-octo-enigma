@@ -16,4 +16,4 @@ __pycache__/
 notebooks/
 
 # file python yang tidak usah diupload ke GPU
-/prepare_data.py
+# /prepare_data.py
