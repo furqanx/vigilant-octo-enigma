@@ -1,0 +1,60 @@
+# ==========================================
+# END-TO-END 2D SED CONFIGURATION (Mel-Spectrogram -> 2D CNN)
+# ==========================================
+
+# --- 1. EXPERIMENT INFO ---
+experiment:
+  project_name : "birdclef2026-effnet-baseline"
+  seed         : 42              
+  output_dir   : "./logs/experiments"
+
+# --- 2. DATA PIPELINE (Audio to 2D Spectrogram) ---
+data:
+  # Jalur Kaggle
+  train_csv       : "/kaggle/input/competitions/birdclef-2026/train.csv"
+  train_audio_dir : "/kaggle/input/competitions/birdclef-2026/train_audio"
+  soundscape_csv  : "/kaggle/input/competitions/birdclef-2026/train_soundscapes_labels.csv"
+  soundscape_dir  : "/kaggle/input/competitions/birdclef-2026/train_soundscapes"
+  taxonomy_csv    : "/kaggle/input/competitions/birdclef-2026/taxonomy.csv"
+  
+  sample_rate     : 32000
+  max_duration    : 5.0      # Wajib 5 detik sesuai format dataset
+  batch_size      : 32
+  num_workers     : 4        # Disesuaikan dengan jumlah core CPU Kaggle standar
+  
+  # Parameter Transformasi Mel-Spectrogram (Feature Extraction)
+  n_fft           : 2048
+  hop_length      : 512
+  n_mels          : 128      # Tinggi resolusi gambar (sumbu Y)
+  fmin            : 50       # Potong frekuensi super rendah (noise angin/gemuruh)
+  fmax            : 16000    # Nyquist frequency (SR / 2)
+
+# --- 3. MODEL ARCHITECTURE (2D Vision Model) ---
+model:
+  # The "Eyes" (2D Feature Extractor menggunakan library 'timm')
+  backbone        : "tf_efficientnet_b0_ns"  # Ringan, stabil untuk baseline
+  # backbone      : "convnext_nano"          # Alternatif modern yang sangat kuat
+  # backbone      : "resnet34"               # Klasik dan cepat
+  pretrained      : True     # Gunakan bobot ImageNet
+  
+  in_channels     : 1        # Spektrogram adalah gambar 1 channel (Grayscale)
+  num_classes     : 234      # Jumlah output node (Spesies)
+  
+  # Regularization
+  drop_rate       : 0.2
+  drop_path_rate  : 0.2
+
+# --- 4. TRAINING HYPERPARAMETERS ---
+train:
+  epochs           : 15
+  learning_rate    : 1e-3     
+  optimizer        : "adamw"  
+  weight_decay     : 0.01    
+  loss_function    : "BCEWithLogitsLoss"  # Baseline awal, nanti diganti ke "AsymmetricLoss"
+  
+  gradient_accumulation_steps: 2  # Real batch size = 32 * 2 = 64
+  
+  fp16             : True
+  device           : "cuda"
+  logging_steps    : 50     
+  save_total_limit : 2
