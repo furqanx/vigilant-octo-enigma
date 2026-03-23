@@ -74,9 +74,9 @@ def main(args):
     # ====================================================
     print("[Main] Configuring Optimizer & Scheduler...")
     
+    epochs       = int(config['train']['epochs'])
     lr           = float(config['train']['learning_rate'])
     weight_decay = float(config['train'].get('weight_decay', 0.01))
-    epochs       = int(config['train']['epochs'])
     accum_steps  = int(config['train'].get('gradient_accumulation_steps', 1))
 
     optimizer    = optim.AdamW(
@@ -135,20 +135,20 @@ def main(args):
     # ====================================================
     print("\n[Main] Training Finished. Saving artifacts...")
     
-    # Pastikan output_dir mengarah ke folder project yang benar
-    project_dir = os.path.join(config['experiment']['output_dir'], config['experiment']['project_name'])
+    # pastikan output_dir mengarah ke folder project yang benar
+    project_dir     = os.path.join(config['experiment']['output_dir'], config['experiment']['project_name'])
     final_save_path = os.path.join(project_dir, "final_model")
     os.makedirs(final_save_path, exist_ok=True)
     
     # --- REVISI KRUSIAL: MULTI-GPU UNWRAPPING ---
-    # Lepaskan bungkus DataParallel sebelum menyimpan agar format bobot tetap standar
+    # lepaskan bungkus DataParallel sebelum menyimpan agar format bobot tetap standar
     if isinstance(model, torch.nn.DataParallel):
         final_state_dict = model.module.state_dict()
     else:
         final_state_dict = model.state_dict()
     # --------------------------------------------
     
-    # Menyimpan murni state_dict (bobot) dari model PyTorch
+    # menyimpan murni state_dict (bobot) dari model pytorch
     model_save_file = os.path.join(final_save_path, "pytorch_model.pth")
     torch.save(final_state_dict, model_save_file)
     

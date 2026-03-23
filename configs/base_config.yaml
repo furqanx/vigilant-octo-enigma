@@ -10,36 +10,40 @@ experiment:
 
 # --- 2. DATA PIPELINE (Audio to 2D Spectrogram) ---
 data:
-  # --- REVISI: Menggunakan data hasil prepare_splits.py ---
   processed_dir   : "/kaggle/working/vigilant-octo-enigma/data/processed"
   train_split_csv : "/kaggle/working/vigilant-octo-enigma/data/fixed/train_split.csv"
   val_split_csv   : "/kaggle/working/vigilant-octo-enigma/data/fixed/val_split.csv"
   
-  # Taxonomy tetap mengarah ke input asli karena tidak kita ubah
+  # taxonomy tetap mengarah ke input asli karena tidak kita ubah
   taxonomy_csv    : "/kaggle/input/competitions/birdclef-2026/taxonomy.csv"
   
   sample_rate     : 32000
-  max_duration    : 5.0      # Wajib 5 detik sesuai format dataset
+  # wajib 5 detik sesuai format dataset
+  max_duration    : 5.0      
   batch_size      : 32
-  num_workers     : 4        # Disesuaikan dengan jumlah core CPU Kaggle standar
+  # disesuaikan dengan jumlah core CPU Kaggle standar
+  num_workers     : 4        
   
-  # Parameter Transformasi Mel-Spectrogram (Feature Extraction)
+  # parameter transformasi mel-spectrogram (feature extraction)
   n_fft           : 2048
   hop_length      : 512
-  n_mels          : 128      # Tinggi resolusi gambar (sumbu Y)
-  fmin            : 50       # Potong frekuensi super rendah (noise angin/gemuruh)
-  fmax            : 16000    # Nyquist frequency (SR / 2)
+  # tinggi resolusi gambar (sumbu Y)
+  n_mels          : 128      
+  # potong frekuensi super rendah (noise angin/gemuruh)
+  fmin            : 50       
+  # nyquist frequency (SR / 2)
+  fmax            : 16000    
 
 # --- 3. MODEL ARCHITECTURE (2D Vision Model) ---
 model:
-  # --- REVISI: Ubah 'backbone' menjadi 'model_name' ---
-  model_name      : "tf_efficientnet_b0_ns"  # Ringan, stabil untuk baseline
-  pretrained      : True     # Gunakan bobot ImageNet
+  model_name      : "tf_efficientnet_b0_ns"  
+  pretrained      : True     
+  # spektrogram adalah gambar 1 channel (grayscale)
+  in_channels     : 1        
+  # jumlah output node (spesies)
+  num_classes     : 234      
   
-  in_channels     : 1        # Spektrogram adalah gambar 1 channel (Grayscale)
-  num_classes     : 234      # Jumlah output node (Spesies)
-  
-  # Regularization
+  # regularization
   drop_rate       : 0.2
   drop_path_rate  : 0.2
 
@@ -50,8 +54,8 @@ train:
   optimizer        : "adamw"  
   weight_decay     : 0.01    
   loss_function    : "BCEWithLogitsLoss"  
-  
-  gradient_accumulation_steps: 2  # Real batch size = 32 * 2 = 64
+  # real batch size = 32 * 2 = 64
+  gradient_accumulation_steps: 2  # berelasi dengan batch size
   
   fp16             : True
   device           : "cuda"
