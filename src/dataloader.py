@@ -6,12 +6,9 @@ import torch
 import torchaudio
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import MultiLabelBinarizer
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import GroupShuffleSplit
-import ast
 
-# Mengimpor dari preprocessing.py
-from src.preprocessing import DynamicNoiseInjector, AudioToMelSpectrogram
+# Mengimpor dari preprocessing.py (Pastikan file ini ada)
+# from src.preprocessing import DynamicNoiseInjector 
 
 class SEDDataset(Dataset):
     def __init__(self, df, config_data, is_train=True, augmentor=None, mlb=None):
@@ -24,8 +21,11 @@ class SEDDataset(Dataset):
         self.sr = config_data.get('sample_rate', 32000)
         self.duration = config_data.get('max_duration', 5.0)
         self.audio_length = int(self.sr * self.duration) # Jumlah sampel mutlak (misal 160.000)
-        self.audio_dir = config_data.get('train_audio_dir')
+        
+        # Base directory untuk audio yang sudah diproses (folder 'processed')
+        self.processed_dir = config_data.get('processed_dir', '/kaggle/working/vigilant-octo-enigma/data/processed')
 
+        # Transformasi Torchaudio ke Mel-Spectrogram
         self.mel_spectrogram = torchaudio.transforms.MelSpectrogram(
             sample_rate=self.sr,
             n_fft=config_data.get('n_fft', 2048),
@@ -44,10 +44,9 @@ class SEDDataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
-        file_col = 'new_filename' if 'new_filename' in row else 'filename'
-        audio_path = os.path.join(self.audio_dir, row[file_col])
         
-        # 1. Load Audio
+        # 1. Load Audio (menggunakan kolom 'filepath' dari prepare_splits.py)
+        audio_path = os.path.join(self.processed_dir, row['filepath'])
         waveform, current_sr = torchaudio.load(audio_path)
         
         # Konversi ke Mono jika Stereo
@@ -59,110 +58,74 @@ class SEDDataset(Dataset):
             resampler = torchaudio.transforms.Resample(current_sr, self.sr)
             waveform = resampler(waveform)
 
-        # 2. RANDOM CROPPING ATAU PADDING (Mencapai tepat 5 detik)
+        # 2. RANDOM CROPPING ATAU PADDING (Defensive Programming)
         waveform_length = waveform.shape[1]
         
         if waveform_length > self.audio_length:
-            # Jika kepanjangan, potong acak 5 detik
             if self.is_train:
                 start = random.randint(0, waveform_length - self.audio_length)
             else:
-                start = 0 # Deterministic untuk validasi
+                start = 0 
             waveform = waveform[:, start : start + self.audio_length]
         
         elif waveform_length < self.audio_length:
-            # Jika kependekan, tambahkan padding nol (suara hening)
             padding = self.audio_length - waveform_length
             waveform = torch.nn.functional.pad(waveform, (0, padding))
 
-        # 3. AUGMENTASI NOISE (Pada level Waveform 1D)
+        # 3. AUGMENTASI NOISE (Opsional)
         if self.augmentor is not None and self.is_train:
             waveform_np = waveform.squeeze(0).numpy()
             waveform_np = self.augmentor(waveform_np=waveform_np, sample_rate=self.sr)
             waveform = torch.tensor(waveform_np).unsqueeze(0)
 
-        # 4. EKSTRAKSI FITUR (Ubah ke Gambar Mel-Spectrogram 2D)
+        # 4. EKSTRAKSI FITUR (Waveform 1D -> Spectrogram 2D)
         mel_spec = self.mel_spectrogram(waveform)
         image_features = self.amplitude_to_db(mel_spec)
 
-        # if self.feature_extractor is not None:
-        #     # Output shape: [1, n_mels, time_steps]
-        #     image_features = self.feature_extractor(waveform)
-        # else:
-        #     image_features = waveform
-
         # 5. PEMBUATAN TARGET MULTI-LABEL
-        # Menggabungkan primary_label dan secondary_label
-        labels = [row['primary_label']]
-        if 'secondary_labels' in row and pd.notna(row['secondary_labels']):
-            # Convert string representasi list "[label1, label2]" menjadi list asli Python
-            try:
-                sec_labels = ast.literal_eval(row['secondary_labels'])
-                labels.extend(sec_labels)
-            except (ValueError, SyntaxError):
-                pass
+        # Pecah label berdasarkan titik koma (;) untuk menangani soundscapes
+        raw_labels = str(row['primary_label']).split(';')
+        labels = [lbl.strip() for lbl in raw_labels if lbl.strip()]
                 
-        # Gunakan MLB untuk mengubah list kategori menjadi tensor array probabilitas [0, 1, 0, 0, ...]
+        # Transformasi label menjadi tensor multi-hot (misal: [0., 1., 0., 0., ...])
         target = self.mlb.transform([labels])[0]
         target = torch.tensor(target, dtype=torch.float32)
 
         return {
-            "input_values": image_features, # Gambar 2D
-            "labels": target               # Multi-hot vector
+            "input_values": image_features, # Gambar Spectrogram 2D (1 Channel)
+            "labels": target               # Array Biner (234 kelas)
         }
 
 def get_dataloader(config_data):
-    print(f"[DataLoader] Menyiapkan dataset dari: {config_data['train_csv']}")
-    df = pd.read_csv(config_data['train_csv'])
+    print("\n[DataLoader] Inisialisasi Data pipeline...")
     
-    # SETUP MULTILABEL BINARIZER (Daftar seluruh spesies kompetisi)
-    # Sangat penting agar urutan indeks kelas (0-233) konsisten di seluruh tahap
-    print(f"[DataLoader] Mengekstrak 234 kelas dari: {config_data['taxonomy_csv']}")
-    taxonomy_df = pd.read_csv(config_data['taxonomy_csv'])
+    # 1. Load Data yang sudah di-split secara offline
+    train_csv_path = config_data.get('train_split_csv', '/kaggle/working/vigilant-octo-enigma/data/fixed/train_split.csv')
+    val_csv_path   = config_data.get('val_split_csv', '/kaggle/working/vigilant-octo-enigma/data/fixed/val_split.csv')
+    
+    train_df = pd.read_csv(train_csv_path)
+    val_df   = pd.read_csv(val_csv_path)
+    
+    print(f"[DataLoader] Memuat {len(train_df)} sampel Train dan {len(val_df)} sampel Validasi.")
 
+    # 2. Setup MultiLabelBinarizer (234 Spesies)
+    taxonomy_csv = config_data.get('taxonomy_csv', '/kaggle/input/birdclef-2026/taxonomy.csv')
+    if not os.path.exists(taxonomy_csv):
+        taxonomy_csv = '/kaggle/input/competitions/birdclef-2026/taxonomy.csv'
+        
+    taxonomy_df = pd.read_csv(taxonomy_csv)
     all_classes = sorted(taxonomy_df['primary_label'].unique())
 
     mlb = MultiLabelBinarizer(classes=all_classes)
     mlb.fit([all_classes])
-    
-    # PEMBAGIAN DATASET (TRAIN, VAL, TEST) BEBAS KONTAMINASI
-    gss1 = GroupShuffleSplit(n_splits=1, test_size=0.10, random_state=42)
-    train_val_idx, test_idx = next(gss1.split(df, groups=df['filename']))
-    
-    train_val_df = df.iloc[train_val_idx].reset_index(drop=True)
-    test_df = df.iloc[test_idx].reset_index(drop=True)
+    print(f"[DataLoader] MLB terpasang untuk {len(mlb.classes_)} kelas unik.")
 
-    # test_size 0.111 dari sisa 90% = ~10% dari total
-    gss2 = GroupShuffleSplit(n_splits=1, test_size=0.111, random_state=42)
-    train_idx, val_idx = next(gss2.split(train_val_df, groups=train_val_df['filename']))
-
-    train_df = train_val_df.iloc[train_idx].reset_index(drop=True)
-    val_df = train_val_df.iloc[val_idx].reset_index(drop=True)
-
-    print(f"[DataLoader] Split Size -> Train: {len(train_df)} | Val: {len(val_df)} | Test: {len(test_df)}")
-    
-    # train_val_df, test_df = train_test_split(df, test_size=0.10, random_state=42)
-
-    # train_df, val_df = train_test_split(train_val_df, test_size=0.111, random_state=42)
-
-    # train_df = train_df.reset_index(drop=True)
-    # val_df = val_df.reset_index(drop=True)
-    # test_df = test_df.reset_index(drop=True)
-
-    # print(f"[DataLoader] Split Size -> Train: {len(train_df)} | Val: {len(val_df)} | Test: {len(test_df)}")
-
-    # Inisialisasi Noise Injector (Opsional, pastikan folder noise_dir ada)
-    noise_dir = config_data.get('noise_dir', None)
-    noise_injector = None
-    if noise_dir and os.path.exists(noise_dir):
-        noise_injector = DynamicNoiseInjector(noise_dir=noise_dir, p=0.5)
-
-    # Setup Dataset PyTorch
+    # 3. Setup Dataset PyTorch
     train_ds = SEDDataset(
         train_df, 
         config_data, 
         is_train=True, 
-        augmentor=noise_injector, 
+        augmentor=None, # Isi dengan noise_injector jika Anda ingin memakai augmentasi
         mlb=mlb
     )
     
@@ -174,21 +137,14 @@ def get_dataloader(config_data):
         mlb=mlb
     )
 
-    test_ds = SEDDataset(
-        test_df, 
-        config_data, 
-        is_train=False, 
-        augmentor=None, 
-        mlb=mlb
-    )
-
-    # Setup DataLoader (Cukup gunakan standar, tanpa Collator khusus)
+    # 4. Setup DataLoader
     train_loader = DataLoader(
         train_ds,
         batch_size=config_data['batch_size'],
-        shuffle=True, # Acak urutan file
+        shuffle=True, 
         num_workers=config_data.get('num_workers', 2),
-        pin_memory=True
+        pin_memory=True,
+        drop_last=True # Mencegah error jika sisa batch terakhir berukuran 1
     )
     
     val_loader = DataLoader(
@@ -199,12 +155,4 @@ def get_dataloader(config_data):
         pin_memory=True
     )
 
-    test_loader = DataLoader(
-        test_ds, 
-        batch_size=config_data['batch_size'], 
-        shuffle=False, 
-        num_workers=config_data.get('num_workers', 2), 
-        pin_memory=True
-    )
-    
-    return train_loader, val_loader, test_loader
+    return train_loader, val_loader

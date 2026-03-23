@@ -10,11 +10,12 @@ experiment:
 
 # --- 2. DATA PIPELINE (Audio to 2D Spectrogram) ---
 data:
-  # Jalur Kaggle
-  train_csv       : "/kaggle/input/competitions/birdclef-2026/train.csv"
-  train_audio_dir : "/kaggle/input/competitions/birdclef-2026/train_audio"
-  soundscape_csv  : "/kaggle/input/competitions/birdclef-2026/train_soundscapes_labels.csv"
-  soundscape_dir  : "/kaggle/input/competitions/birdclef-2026/train_soundscapes"
+  # --- REVISI: Menggunakan data hasil prepare_splits.py ---
+  processed_dir   : "/kaggle/working/vigilant-octo-enigma/data/processed"
+  train_split_csv : "/kaggle/working/vigilant-octo-enigma/data/fixed/train_split.csv"
+  val_split_csv   : "/kaggle/working/vigilant-octo-enigma/data/fixed/val_split.csv"
+  
+  # Taxonomy tetap mengarah ke input asli karena tidak kita ubah
   taxonomy_csv    : "/kaggle/input/competitions/birdclef-2026/taxonomy.csv"
   
   sample_rate     : 32000
@@ -31,10 +32,8 @@ data:
 
 # --- 3. MODEL ARCHITECTURE (2D Vision Model) ---
 model:
-  # The "Eyes" (2D Feature Extractor menggunakan library 'timm')
-  backbone        : "tf_efficientnet_b0_ns"  # Ringan, stabil untuk baseline
-  # backbone      : "convnext_nano"          # Alternatif modern yang sangat kuat
-  # backbone      : "resnet34"               # Klasik dan cepat
+  # --- REVISI: Ubah 'backbone' menjadi 'model_name' ---
+  model_name      : "tf_efficientnet_b0_ns"  # Ringan, stabil untuk baseline
   pretrained      : True     # Gunakan bobot ImageNet
   
   in_channels     : 1        # Spektrogram adalah gambar 1 channel (Grayscale)
@@ -50,7 +49,7 @@ train:
   learning_rate    : 1e-3     
   optimizer        : "adamw"  
   weight_decay     : 0.01    
-  loss_function    : "BCEWithLogitsLoss"  # Baseline awal, nanti diganti ke "AsymmetricLoss"
+  loss_function    : "BCEWithLogitsLoss"  
   
   gradient_accumulation_steps: 2  # Real batch size = 32 * 2 = 64
   

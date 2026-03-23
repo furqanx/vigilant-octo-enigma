@@ -58,8 +58,8 @@ def main(args):
     # 2. DATA PIPELINE
     # ====================================================
     # Logika Mel-spectrogram murni diurus di dalam Dataset (dataloader.py)
-    train_loader, val_loader, test_loader = get_dataloader(config['data'])
-    print(f"[Main] Data loaded. Train batches: {len(train_loader)}, Val batches: {len(val_loader)}, Test batches: {len(test_loader)}")
+    train_loader, val_loader = get_dataloader(config['data'])
+    print(f"[Main] Data loaded. Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
 
 
     # ====================================================
